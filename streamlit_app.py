@@ -1,46 +1,55 @@
 import streamlit as st
 import pandas as pd
-import google.generativeai as genai
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+import requests
+import json
 
 class AutoServiceAgent:
-    def __init__(self, api_key='AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E'):
+    def __init__(self):
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.garages_df = None
         self.embeddings = None
+        self.api_key = "AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E"
+        self.chat_history = []
+
+    def call_gemini_api(self, prompt):
+        """Call Gemini API using the provided API key"""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={self.api_key}"
         
-        # Configure Gemini
-        genai.configure(api_key=api_key)
-        
-        # Set up generation config
-        self.generation_config = {
-            "temperature": 1,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 8192,
-            "response_mime_type": "text/plain",
+        headers = {
+            "Content-Type": "application/json"
         }
         
-        # Initialize the model
-        self.model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash-exp",
-            generation_config=self.generation_config,
-        )
-        
-        # Start chat session
-        self.chat_session = self.model.start_chat(history=[])
+        data = {
+            "contents": [{
+                "parts": [{
+                    "text": prompt
+                }]
+            }]
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=data)
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and result['candidates']:
+                    return result['candidates'][0]['content']['parts'][0]['text']
+            return "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+        except Exception as e:
+            st.error(f"Error calling Gemini API: {str(e)}")
+            return "I encountered an error while processing your request. Please try again."
         
     def load_data(self, file_path):
         """Load and prepare garage data"""
-        self.garages_df = pd.read_csv(file_path)
-        self.generate_embeddings()
+        try:
+            self.garages_df = pd.read_csv(file_path)
+            self.generate_embeddings()
+            return True
+        except Exception as e:
+            st.error(f"Error loading data: {str(e)}")
+            return False
         
     def generate_embeddings(self):
         """Generate embeddings for all garages"""
@@ -63,145 +72,121 @@ class AutoServiceAgent:
             f"Garage: {row['Garage Name']}\n"
             f"Location: {row['Location']}\n"
             f"City: {row['City']}\n"
-            f"Postcode: {row['Postcode']}\n"
             f"Phone: {row['Phone']}\n"
-            f"Email: {row['Email']}\n"
-            f"Website: {row['Website']}\n"
+            f"Email: {row.get('Email', 'Not available')}\n"
+            f"Website: {row.get('Website', 'Not available')}\n"
             for _, row in relevant_garages.iterrows()
         ])
         
-        prompt = f"""
-        Act as an expert automotive service assistant. Analyze the following garage information to answer the user's query.
+        prompt = f"""You are an automotive service assistant. Help the user find the most suitable garage based on their query.
+
+Available Garages:
+{garage_context}
+
+User Question: {query}
+
+Please analyze:
+1. User's specific requirements
+2. Best matching garages
+3. Location and accessibility
+4. Contact options
+
+Provide a clear response that:
+- Directly answers the query
+- Suggests the most suitable garage(s)
+- Includes relevant contact info
+- Offers any helpful additional information"""
         
-        Available Garages:
-        {garage_context}
-        
-        User Query: {query}
-        
-        Think about this step by step:
-        1. What specific needs does the user have?
-        2. Which garages best match these needs?
-        3. What are the key factors (location, services, contact options)?
-        4. What additional information would be helpful?
-        
-        Provide a clear, detailed response that:
-        - Answers the query directly
-        - Recommends specific garages with reasons
-        - Includes relevant contact details
-        - Adds helpful context or suggestions
-        """
         return prompt
 
     def process_query(self, query):
-        """Process query and get response from Gemini"""
+        """Process user query and get response"""
         try:
             relevant_garages = self.find_relevant_garages(query)
             prompt = self.generate_prompt(query, relevant_garages)
-            
-            # Get response from chat session
-            response = self.chat_session.send_message(prompt)
-            
-            return response.text, relevant_garages
-            
+            response = self.call_gemini_api(prompt)
+            return response, relevant_garages
         except Exception as e:
             st.error(f"Error processing query: {str(e)}")
-            return "I apologize, but I encountered an error processing your request. Please try again.", None
+            return "I apologize, but I encountered an error. Please try again.", None
 
+# Initialize Streamlit interface
 def init_session_state():
-    """Initialize session state variables"""
     if 'messages' not in st.session_state:
         st.session_state.messages = [
             {
                 "role": "assistant",
-                "content": """Welcome! I'm your automotive service assistant. I can help you with:
-                - Finding suitable garages in your area
-                - Getting service recommendations
-                - Understanding garage specialties
-                - Connecting with automotive experts
-                
-                How can I assist you today?"""
+                "content": "👋 Hello! I'm your garage finder assistant. Upload a CSV file with garage data, and I'll help you find the perfect garage for your needs!"
             }
         ]
     if 'agent' not in st.session_state:
         st.session_state.agent = AutoServiceAgent()
 
 def main():
-    st.set_page_config(page_title="Auto Service Assistant", layout="wide")
+    st.set_page_config(page_title="Garage Finder Assistant", layout="wide")
     
-    st.title("🚗 Smart Garage Assistant")
+    st.title("🚗 Garage Finder Assistant")
     
-    # Initialize session state
     init_session_state()
     
-    # Sidebar for file upload and information
+    # Sidebar
     with st.sidebar:
-        st.header("Upload Data")
+        st.header("📁 Data Upload")
         uploaded_file = st.file_uploader("Upload Garage Data (CSV)", type=['csv'])
         
         if uploaded_file is not None:
-            try:
-                st.session_state.agent.load_data(uploaded_file)
-                st.success("✅ Garage data loaded successfully!")
-                total_garages = len(st.session_state.agent.garages_df)
-                st.info(f"📊 Total garages loaded: {total_garages}")
-            except Exception as e:
-                st.error(f"Error loading data: {str(e)}")
+            if st.session_state.agent.load_data(uploaded_file):
+                st.success("✅ Data loaded successfully!")
+                st.info(f"📊 Total garages: {len(st.session_state.agent.garages_df)}")
         
         st.markdown("---")
         st.markdown("""
-        ### How to Use
-        1. Upload your garage data CSV
-        2. Ask questions about:
-           - Garage locations
-           - Services offered
-           - Contact information
-           - Recommendations
-        3. Get AI-powered responses
+        ### 🔍 How to Use
+        1. Upload your garage CSV
+        2. Ask questions like:
+           - "Find a garage in Bath"
+           - "Who can fix my electric car?"
+           - "Need a garage with good reviews"
+        3. Get AI-powered suggestions
         """)
     
-    # Main chat interface
+    # Chat interface
     chat_container = st.container()
     
     with chat_container:
-        # Display chat messages
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
                 
-                # Display garage cards if available
                 if "garages" in message and message["garages"] is not None:
                     for _, garage in message["garages"].iterrows():
-                        with st.expander(f"🔍 {garage['Garage Name']}", expanded=True):
-                            cols = st.columns([2, 1])
-                            with cols[0]:
-                                st.markdown(f"**Location:** {garage['Location']}, {garage['City']}")
-                                st.markdown(f"**Postcode:** {garage['Postcode']}")
-                            with cols[1]:
-                                st.markdown(f"**Phone:** {garage['Phone']}")
-                                if pd.notna(garage['Email']):
-                                    st.markdown(f"**Email:** {garage['Email']}")
-                                if pd.notna(garage['Website']):
-                                    st.markdown(f"**Website:** [{garage['Website']}]({garage['Website']})")
+                        with st.expander(f"🔧 {garage['Garage Name']}", expanded=True):
+                            col1, col2 = st.columns([2,1])
+                            with col1:
+                                st.markdown(f"📍 **Location:** {garage['Location']}, {garage['City']}")
+                            with col2:
+                                st.markdown(f"📞 **Phone:** {garage['Phone']}")
+                                if pd.notna(garage.get('Email')):
+                                    st.markdown(f"📧 **Email:** {garage['Email']}")
+                                if pd.notna(garage.get('Website')):
+                                    st.markdown(f"🌐 **Website:** [{garage['Website']}]({garage['Website']})")
     
-    # Chat input
-    if prompt := st.chat_input("Ask me about garage services, locations, or repairs..."):
+    # User input
+    if prompt := st.chat_input("Ask about garages..."):
         if st.session_state.agent.garages_df is None:
             st.error("⚠️ Please upload garage data first!")
             return
             
-        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Get agent response
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing garages and generating response..."):
+            with st.spinner("🔍 Finding the best garages for you..."):
                 response, relevant_garages = st.session_state.agent.process_query(prompt)
                 st.markdown(response)
                 
-                # Add response to messages
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": response,
