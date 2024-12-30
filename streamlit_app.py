@@ -1,24 +1,23 @@
 import streamlit as st
 import pandas as pd
-import google.generativeai as genai
+from vertexai.preview.generative_models import GenerativeModel
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import os
 from dotenv import load_dotenv
+import requests
+import json
 
 # Load environment variables
 load_dotenv()
-
-# Configure Gemini API
-genai.configure(api_key=os.getenv('AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E'))
-model = genai.GenerativeModel('gemini-1.5-flash')
 
 class AutoServiceAgent:
     def __init__(self):
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.garages_df = None
         self.embeddings = None
+        self.api_key = os.getenv('AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E')
         
     def load_data(self, file_path):
         """Load and prepare garage data"""
@@ -27,7 +26,6 @@ class AutoServiceAgent:
         
     def generate_embeddings(self):
         """Generate embeddings for all garages"""
-        # Combine relevant fields for embedding
         text_for_embedding = self.garages_df.apply(
             lambda x: f"{x['Garage Name']} {x['Location']} {x['City']}", 
             axis=1
@@ -76,12 +74,40 @@ class AutoServiceAgent:
         """
         return prompt
 
-    async def get_response(self, query):
-        """Process query and get response from Gemini"""
+    def get_gemini_response(self, prompt):
+        """Get response from Gemini API using direct REST API call"""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={self.api_key}"
+        
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        data = {
+            "contents": [{
+                "parts": [{
+                    "text": prompt
+                }]
+            }]
+        }
+        
+        response = requests.post(url, headers=headers, json=data)
+        
+        if response.status_code == 200:
+            response_json = response.json()
+            try:
+                generated_text = response_json['candidates'][0]['content']['parts'][0]['text']
+                return generated_text
+            except (KeyError, IndexError):
+                return "I apologize, but I couldn't generate a proper response at the moment."
+        else:
+            return f"Error: Unable to get response from API (Status code: {response.status_code})"
+
+    def process_query(self, query):
+        """Process query and get response"""
         relevant_garages = self.find_relevant_garages(query)
         prompt = self.generate_prompt(query, relevant_garages)
-        response = model.generate_content(prompt)
-        return response.text, relevant_garages
+        response = self.get_gemini_response(prompt)
+        return response, relevant_garages
 
 def init_session_state():
     """Initialize session state variables"""
@@ -163,7 +189,7 @@ def main():
         # Get agent response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                response, relevant_garages = st.session_state.agent.get_response(prompt)
+                response, relevant_garages = st.session_state.agent.process_query(prompt)
                 st.markdown(response)
                 
                 # Add response to messages
