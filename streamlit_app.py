@@ -1,45 +1,36 @@
 import streamlit as st
 import pandas as pd
+import google.generativeai as genai
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-import requests
-import json
 
 class AutoServiceAgent:
-    def __init__(self):
+    def __init__(self, api_key='AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E'):
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.garages_df = None
         self.embeddings = None
-        self.api_key = "AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E"
-        self.chat_history = []
-
-    def call_gemini_api(self, prompt):
-        """Call Gemini API using the provided API key"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={self.api_key}"
         
-        headers = {
-            "Content-Type": "application/json"
+        # Configure Gemini
+        genai.configure(api_key=api_key)
+        
+        # Set generation config
+        self.generation_config = {
+            "temperature": 1,
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_output_tokens": 8192,
+            "response_mime_type": "text/plain",
         }
         
-        data = {
-            "contents": [{
-                "parts": [{
-                    "text": prompt
-                }]
-            }]
-        }
-
-        try:
-            response = requests.post(url, headers=headers, json=data)
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    return result['candidates'][0]['content']['parts'][0]['text']
-            return "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
-        except Exception as e:
-            st.error(f"Error calling Gemini API: {str(e)}")
-            return "I encountered an error while processing your request. Please try again."
+        # Initialize model
+        self.model = genai.GenerativeModel(
+            model_name="gemini-2.0-flash-exp",
+            generation_config=self.generation_config,
+        )
+        
+        # Start chat session
+        self.chat = self.model.start_chat(history=[])
         
     def load_data(self, file_path):
         """Load and prepare garage data"""
@@ -52,7 +43,7 @@ class AutoServiceAgent:
             return False
         
     def generate_embeddings(self):
-        """Generate embeddings for all garages"""
+        """Generate embeddings for garage data"""
         text_for_embedding = self.garages_df.apply(
             lambda x: f"{x['Garage Name']} {x['Location']} {x['City']}", 
             axis=1
@@ -60,7 +51,7 @@ class AutoServiceAgent:
         self.embeddings = self.embedding_model.encode(text_for_embedding.tolist())
         
     def find_relevant_garages(self, query, top_k=5):
-        """Find most relevant garages for the query"""
+        """Find most relevant garages using semantic search"""
         query_embedding = self.embedding_model.encode([query])
         similarities = cosine_similarity(query_embedding, self.embeddings)[0]
         top_indices = similarities.argsort()[-top_k:][::-1]
@@ -78,40 +69,46 @@ class AutoServiceAgent:
             for _, row in relevant_garages.iterrows()
         ])
         
-        prompt = f"""You are an automotive service assistant. Help the user find the most suitable garage based on their query.
+        prompt = f"""You are an automotive service assistant. You help users find the most suitable garage based on their needs.
 
 Available Garages:
 {garage_context}
 
 User Question: {query}
 
-Please analyze:
-1. User's specific requirements
-2. Best matching garages
-3. Location and accessibility
-4. Contact options
+Analyze this step by step:
+1. User's requirements and preferences
+2. Best matching garages from the provided list
+3. Location and accessibility factors
+4. Available contact methods and convenience
 
-Provide a clear response that:
-- Directly answers the query
-- Suggests the most suitable garage(s)
-- Includes relevant contact info
-- Offers any helpful additional information"""
+Provide a clear, helpful response that:
+1. Directly addresses the user's query
+2. Recommends the most suitable garage(s) with reasons
+3. Includes relevant contact information
+4. Adds any useful additional context or suggestions
+
+Format the response in a clear, easy-to-read manner with appropriate sections and bullet points where helpful."""
         
         return prompt
 
     def process_query(self, query):
-        """Process user query and get response"""
+        """Process user query and get Gemini response"""
         try:
             relevant_garages = self.find_relevant_garages(query)
             prompt = self.generate_prompt(query, relevant_garages)
-            response = self.call_gemini_api(prompt)
-            return response, relevant_garages
+            
+            # Get response from Gemini
+            response = self.chat.send_message(prompt)
+            
+            return response.text, relevant_garages
+            
         except Exception as e:
             st.error(f"Error processing query: {str(e)}")
             return "I apologize, but I encountered an error. Please try again.", None
 
-# Initialize Streamlit interface
 def init_session_state():
+    """Initialize Streamlit session state"""
     if 'messages' not in st.session_state:
         st.session_state.messages = [
             {
@@ -123,15 +120,16 @@ def init_session_state():
         st.session_state.agent = AutoServiceAgent()
 
 def main():
-    st.set_page_config(page_title="Garage Finder Assistant", layout="wide")
+    """Main Streamlit application"""
+    st.set_page_config(page_title="Smart Garage Finder", layout="wide")
     
-    st.title("🚗 Garage Finder Assistant")
+    st.title("🚗 Smart Garage Finder")
     
     init_session_state()
     
     # Sidebar
     with st.sidebar:
-        st.header("📁 Data Upload")
+        st.header("📁 Upload Data")
         uploaded_file = st.file_uploader("Upload Garage Data (CSV)", type=['csv'])
         
         if uploaded_file is not None:
@@ -145,9 +143,9 @@ def main():
         1. Upload your garage CSV
         2. Ask questions like:
            - "Find a garage in Bath"
-           - "Who can fix my electric car?"
-           - "Need a garage with good reviews"
-        3. Get AI-powered suggestions
+           - "I need an electrical specialist"
+           - "Looking for a garage with good reviews"
+        3. Get AI-powered recommendations
         """)
     
     # Chat interface
