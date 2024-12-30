@@ -1,17 +1,15 @@
-import os
-import google.generativeai as genai
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-from sentence_transformers import SentenceTransformer
-import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 class AutoServiceAgent:
     def __init__(self, api_key='AIzaSyCcMZPrzP5me7Rl4pmAc1Nn5vUDSan5Q6E'):
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.garages_df = None
-        self.embeddings = None
+        self.vectorizer = TfidfVectorizer(stop_words='english')
+        self.tfidf_matrix = None
         
         # Configure Gemini
         genai.configure(api_key=api_key)
@@ -38,24 +36,24 @@ class AutoServiceAgent:
         """Load and prepare garage data"""
         try:
             self.garages_df = pd.read_csv(file_path)
-            self.generate_embeddings()
+            self._create_search_index()
             return True
         except Exception as e:
             st.error(f"Error loading data: {str(e)}")
             return False
         
-    def generate_embeddings(self):
-        """Generate embeddings for garage data"""
-        text_for_embedding = self.garages_df.apply(
+    def _create_search_index(self):
+        """Create TF-IDF matrix for garage search"""
+        search_texts = self.garages_df.apply(
             lambda x: f"{x['Garage Name']} {x['Location']} {x['City']}", 
             axis=1
-        )
-        self.embeddings = self.embedding_model.encode(text_for_embedding.tolist())
+        ).tolist()
+        self.tfidf_matrix = self.vectorizer.fit_transform(search_texts)
         
     def find_relevant_garages(self, query, top_k=5):
-        """Find most relevant garages using semantic search"""
-        query_embedding = self.embedding_model.encode([query])
-        similarities = cosine_similarity(query_embedding, self.embeddings)[0]
+        """Find most relevant garages using TF-IDF and cosine similarity"""
+        query_vec = self.vectorizer.transform([query])
+        similarities = cosine_similarity(query_vec, self.tfidf_matrix)[0]
         top_indices = similarities.argsort()[-top_k:][::-1]
         return self.garages_df.iloc[top_indices]
     
@@ -71,26 +69,20 @@ class AutoServiceAgent:
             for _, row in relevant_garages.iterrows()
         ])
         
-        prompt = f"""You are an automotive service assistant. You help users find the most suitable garage based on their needs.
+        prompt = f"""You are an automotive service assistant helping users find the right garage. 
 
 Available Garages:
 {garage_context}
 
 User Question: {query}
 
-Analyze this step by step:
-1. User's requirements and preferences
-2. Best matching garages from the provided list
-3. Location and accessibility factors
-4. Available contact methods and convenience
-
-Provide a clear, helpful response that:
-1. Directly addresses the user's query
+Provide a helpful response that:
+1. Addresses the user's specific needs
 2. Recommends the most suitable garage(s) with reasons
-3. Includes relevant contact information
-4. Adds any useful additional context or suggestions
+3. Includes relevant contact details
+4. Adds any useful suggestions
 
-Format the response in a clear, easy-to-read manner with appropriate sections and bullet points where helpful."""
+Format your response clearly with appropriate sections and bullet points."""
         
         return prompt
 
