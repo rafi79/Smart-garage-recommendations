@@ -1,3 +1,5 @@
+import os
+import google.generativeai as genai
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
