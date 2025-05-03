@@ -10,6 +10,7 @@ An intelligent automotive service assistant powered by Streamlit and Google's Ge
 - 💬 Interactive chat interface
 - 📊 Detailed garage information display
 - 🔄 CSV data integration
+  
 
 ## Installation
 
@@ -78,7 +79,7 @@ The application expects a CSV file with the following columns:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please feel free to submit a Pull Request and contact if needed any help.
 
 ## License
 
