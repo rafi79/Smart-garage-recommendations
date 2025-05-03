@@ -2,6 +2,9 @@
 
 An intelligent automotive service assistant powered by Streamlit and Google's Gemini AI. This application helps users find and connect with automotive services using natural language processing and smart garage recommendations.
 
+# Paper Name
+A Multi-Agent Garage Service Search and Recommendation with Hybrid MLs and LLMs
+
 ## Features
 
 - 🤖 AI-powered conversations using Google Gemini
