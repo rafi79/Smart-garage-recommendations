@@ -81,9 +81,19 @@ The application expects a CSV file with the following columns:
 
 Contributions are welcome! Please feel free to submit a Pull Request and contact if needed any help.
 
-## License
+# Research Paper Link
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+https://ieeexplore.ieee.org/abstract/document/10940937
+
+# Conference Link
+2025 International Conference on Computer, Electrical & Communication Engineering (ICCECE)
+
+DOI: 10.1109/ICCECE61355.2025
+7-8 Feb. 2025
+
+
+## Authors
+Mahfuzur Rahman Shuvo, Ashifur Rahman, Vishwanath Akuthota, Tanay Paul, Mahfujul Islam, Md Sadi Ashraf, Prosenjit Roy, Md Tanzim Reza
 
 ## Acknowledgments
 
